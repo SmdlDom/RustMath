@@ -52,27 +52,31 @@ impl<const N: usize> FloatN<N> {
 
     fn normalize(&self) -> Self {
         let mag = self.magnitude();
-        let mut normalize_data = [0.0; N];
+        let mut normalize_data = FloatN::zero();
         for i in 0..N {
             normalize_data[i] = self[i] / mag;
         }
-        FloatN::new(normalize_data)
+        normalize_data
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        let mut result = [0.0; N];
+        let mut result = FloatN::zero();
         for i in 0..N {
             result[i] = self[i] + other[i];
+            //deal with imprecision for 0.0
+            if result[i].abs() < 1e-12 {
+                result[i] = 0.0;
+            }
         }
-        FloatN::new(result)
+        result
     }
 
     pub fn scale(&self, factor: f64) -> Self {
-        let mut result = [0.0; N];
+        let mut result = FloatN::zero();
         for i in 0..N {
             result[i] = self[i] * factor;
         }
-        FloatN::new(result)
+        result
     }
 
     pub fn sub(&self, other: &Self) -> Self {

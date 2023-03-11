@@ -74,6 +74,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         for i in 0..N {
             for j in 0..M {
                 result[i][j] = self[i][j] + other[i][j];
+                //deal with imprecision for 0.0
+                if result[i][j].abs() < 1e-12 {
+                    result[i][j] = 0.0;
+                }
             }
         }
         result
@@ -110,40 +114,50 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         self[i] = self[i].add(&self[j].scale(factor));
     }
 
+    fn swap_entries(&mut self, row1: usize, col1: usize, row2: usize, col2: usize) {
+        let temp = self[row1][col1];
+        self[row1][col1] = self[row2][col2];
+        self[row2][col2] = temp;
+    }
+
+    fn set_row(&mut self, index: usize, new_row: &FloatN<M>) {
+        self.data[index] = new_row.clone();
+    }
+
     //#endregion Row manipulation
 
     //#region algo on matrix itself
 
     pub fn row_echelon_form(&self) -> Self {
-        let mut clone = self.clone();
+        let mut rref = self.clone();
         let mut pivot = 0;
 
         for i in 0..N {
             // Find pivot row
             let mut max_row = i;
             for j in i+1..N {
-                if clone[j][pivot].abs() > clone[max_row][pivot].abs() {
+                if rref[j][pivot].abs() > rref[max_row][pivot].abs() {
                     max_row = j;
                 }
             }
 
             // Swap pivot row with current row
             if max_row != i {
-                clone.swap_rows(i, max_row);
+                rref.swap_rows(i, max_row);
             }
 
             // Scale pivot row to have a leading coefficient of 1
-            let pivot_coeff = clone[i][pivot];
+            let pivot_coeff = rref[i][pivot];
             if pivot_coeff != 0.0 {
                 for k in 0..M {
-                    clone[i][k] /= pivot_coeff;
+                    rref[i][k] /= pivot_coeff;
                 }
             }
 
             // Make all rows below pivot row zero in current column
             for j in i+1..N {
-                let factor = clone[j][pivot];
-                clone.add_scaled_row(j, i, -factor);
+                let factor = rref[j][pivot];
+                rref.add_scaled_row(j, i, -factor);
             }
 
             pivot += 1;
@@ -151,7 +165,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
                 break;
             }
         }
-        clone
+        rref
     }
 
     pub fn reduced_row_echelon_form(&self) -> Self {
@@ -187,6 +201,25 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         rref
     }
 
+    pub fn rank(&self) -> i32 {
+        let ref rref = self.row_echelon_form();
+        let mut rank = 0;
+        for i in 0..N {
+            let mut is_zero_row = true;
+            for j in 0..M {
+                if rref[i][j] != 0.0 {
+                    is_zero_row = false;
+                    break;
+                }
+            }
+            if !is_zero_row {
+                rank += 1;
+            }
+        }
+
+        rank
+    }
+
     //#endregion algo on matrix itself
 }
 
@@ -205,62 +238,138 @@ impl<const N: usize> FloatMat<N,N> {
        data
     }
 
+    pub fn is_symmetric(&self) -> bool {
+        for i in 0..N {
+            for j in 0..N {
+                if self[i][j] != self[j][i] {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub fn triangulate_gaussian(&self) -> Self {
-        let mut clone = self.clone();
+        let mut rref = self.clone();
         //Gaussian elimination with maximum selection in column
         for i in 0..N {
             // Find the row with maximum absolute value in the i-th column
             let mut j_max = i;
             for j in (i + 1)..N {
-                if clone[j][i].abs() > clone[j_max][i].abs() {
+                if rref[j][i].abs() > rref[j_max][i].abs() {
                     j_max = j;
                 }
             }
 
             // Swap rows i and j_max if necessary
             if j_max != i {
-                clone.swap_rows(i, j_max);
+                rref.swap_rows(i, j_max);
             }
 
             // Scale row i to make the i-th column elements below the i-th row zero
-            if clone[i][i] == 0.0 {
+            if rref[i][i] == 0.0 {
                 continue;
             }
 
-            // Subtract multiples of row i from the rows below it to make the i-th column elements below the i-th row zero
+            // Subtract multiples of row i from the rows below it to make the i-th column elements
+            // below the i-th row zero
             for j in (i + 1)..N {
-                let factor = clone[j][i] / clone[i][i];
-                clone.add_scaled_row(j, i, -factor);
+                let factor = rref[j][i] / rref[i][i];
+                rref.add_scaled_row(j, i, -factor);
             }
         }
 
-        clone
+        rref
     }
 
-    pub fn lu_decomposition_crout(&self) -> (FloatMat<N, N>, FloatMat<N, N>) {
-        let mut upper = FloatMat::identity();
-        let mut lower = FloatMat::zero();
+    pub fn lu_decomposition_gaussian_elimination(&self) -> Option<(FloatMat<N, N>, FloatMat<N, N>)> {
+        let mut a = self.clone();
+        let mut l = FloatMat::identity();
+        let mut u = FloatMat::zero();
+
+        for i in 0..N {
+            // Perform row swaps to avoid zero pivots
+            for j in i..N {
+                if a[j][i] != 0.0 {
+                    a.swap_rows(i, j);
+                    l.swap_rows(i, j);
+                    if i > 0 {
+                        for k in 0..i-1 {
+                            l.swap_entries(k, i, k, j);
+                        }
+                    }
+                    break;
+                }
+                if j == N - 1 {
+                    // Matrix is singular
+                    return None;
+                }
+            }
+
+            // Perform Gaussian elimination on current column
+            for j in i+1..N {
+                let pivot = a[i][i];
+                if pivot == 0.0 {
+                    // Matrix is singular
+                    return None;
+                }
+                let factor = a[j][i] / pivot;
+                a.add_scaled_row(j, i, -factor);
+                l[j][i] = factor;
+            }
+        }
+
+        for i in 0..N {
+            u.set_row(i, &a[i]);
+        }
+
+        Some((l, u))
+    }
+
+    pub fn lu_decomposition_doolittle(&self) -> Option<(FloatMat<N,N>, FloatMat<N,N>)> {
+        let mut l = FloatMat::identity();
+        let mut u = FloatMat::zero();
 
         for j in 0..N {
             for i in j..N {
-                let mut sum = 0.0;
-                for k in 0..j {
-                    sum += lower[i][k] * upper[k][j];
+                let sum = (0..j).fold(0.0, |acc, k| acc + l[j][k] * u[k][i]);
+                u[j][i] = self[j][i] - sum;
+
+                if j == i && l[j][i] == 0.0 {
+                    return None;
                 }
-                lower[i][j] = self[i][j] - sum;
             }
 
-            for i in j..N {
-                let mut sum = 0.0;
-                for k in 0..j {
-                    sum += lower[j][k] * upper[k][i];
-                }
-                //TODO should handle cases where the det is 0
-                upper[j][i] = (self[j][i] - sum) / lower[j][j];
+            for i in (j + 1)..N {
+                let sum = (0..j).fold(0.0, |acc, k| acc + l[i][k] * u[k][j]);
+                l[i][j] = (self[i][j] - sum) / u[j][j];
             }
         }
 
-        (lower, upper)
+        Some((l, u))
+    }
+
+    pub fn lu_decomposition_crout(&self) -> Option<(FloatMat<N, N>, FloatMat<N, N>)> {
+        let mut u = FloatMat::identity();
+        let mut l = FloatMat::zero();
+
+        for j in 0..N {
+            for i in j..N {
+                let sum = (0..j).fold(0.0, |acc, k| acc + l[i][k] * u[k][j]);
+                l[i][j] = self[i][j] - sum;
+
+                if i == j && l[i][j] == 0.0 {
+                    return None;
+                }
+            }
+
+            for i in j..N {
+                let sum = (0..j).fold(0.0, |acc, k| acc + l[j][k] * u[k][i]);
+                u[j][i] = (self[j][i] - sum) / l[j][j];
+            }
+        }
+
+        Some((l, u))
     }
 
     pub fn det(&self) -> f64 {
@@ -383,7 +492,7 @@ mod float_mat_tests {
     }
 
     #[test]
-    fn float_mat_triangulate_by_gaussian_test() {
+    fn float_mat_triangulate_gaussian_test() {
         let row_a = FloatN::new([1.0,2.0,3.0]);
         let row_b = FloatN::new([3.0,7.0,1.0]);
         let row_c = FloatN::new([5.0,1.0,2.0]);
@@ -395,22 +504,81 @@ mod float_mat_tests {
     }
 
     #[test]
-    fn float_mat_lu_decomposition_by_crout_test() {
+    fn float_mat_lu_decomposition_gaussian_elimination_test() {
         let row_a = FloatN::new([1.0,2.0,3.0]);
         let row_b = FloatN::new([3.0,7.0,1.0]);
         let row_c = FloatN::new([5.0,1.0,2.0]);
         let mat_a = FloatMat::new([row_a, row_b, row_c]);
-        let (lower, upper) =  mat_a.lu_decomposition_crout();
-        assert_eq!(lower[0][0], 1.0);
-        assert_eq!(lower[1][0], 3.0);
-        assert_eq!(lower[1][1], 1.0);
-        assert_eq!(lower[2][0], 5.0);
-        assert_eq!(lower[2][1], -9.0);
-        assert_eq!(lower[2][2], -85.0);
-        assert_eq!(upper[0][0], 1.0);
-        assert_eq!(upper[0][1], 2.0);
-        assert_eq!(upper[0][2], 3.0);
-        assert_eq!(upper[1][2], -8.0);
+        let opts =  mat_a.lu_decomposition_gaussian_elimination();
+        match opts {
+            None => assert!(false),
+            Some((lower, upper)) => {
+                assert_eq!(lower[0][0], 1.0);
+                assert_eq!(lower[1][0], 3.0);
+                assert_eq!(lower[1][1], 1.0);
+                assert_eq!(lower[2][0], 5.0);
+                assert_eq!(lower[2][1], -9.0);
+                assert_eq!(lower[2][2], 1.0);
+                assert_eq!(upper[0][0], 1.0);
+                assert_eq!(upper[0][1], 2.0);
+                assert_eq!(upper[0][2], 3.0);
+                assert_eq!(upper[1][2], -8.0);
+                assert_eq!(upper[1][1], 1.0);
+                assert_eq!(upper[2][2], -85.0);
+            }
+        }
+    }
+
+    #[test]
+    fn float_mat_lu_decomposition_doolittle_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let opts =  mat_a.lu_decomposition_doolittle();
+        match opts {
+            None => assert!(false),
+            Some((lower, upper)) => {
+                assert_eq!(lower[0][0], 1.0);
+                assert_eq!(lower[1][0], 3.0);
+                assert_eq!(lower[1][1], 1.0);
+                assert_eq!(lower[2][0], 5.0);
+                assert_eq!(lower[2][1], -9.0);
+                assert_eq!(lower[2][2], 1.0);
+                assert_eq!(upper[0][0], 1.0);
+                assert_eq!(upper[0][1], 2.0);
+                assert_eq!(upper[0][2], 3.0);
+                assert_eq!(upper[1][2], -8.0);
+                assert_eq!(upper[1][1], 1.0);
+                assert_eq!(upper[2][2], -85.0);
+            }
+        }
+    }
+
+    #[test]
+    fn float_mat_lu_decomposition_crout_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let opts =  mat_a.lu_decomposition_crout();
+        match opts {
+            None => assert!(false),
+            Some((lower, upper)) => {
+                assert_eq!(lower[0][0], 1.0);
+                assert_eq!(lower[1][0], 3.0);
+                assert_eq!(lower[1][1], 1.0);
+                assert_eq!(lower[2][0], 5.0);
+                assert_eq!(lower[2][1], -9.0);
+                assert_eq!(lower[2][2], -85.0);
+                assert_eq!(upper[0][0], 1.0);
+                assert_eq!(upper[0][1], 2.0);
+                assert_eq!(upper[0][2], 3.0);
+                assert_eq!(upper[1][2], -8.0);
+                assert_eq!(upper[1][1], 1.0);
+                assert_eq!(upper[2][2], 1.0);
+            }
+        }
     }
 
     #[test]
@@ -433,6 +601,26 @@ mod float_mat_tests {
         assert_eq!(format!("{:.2}", echelon[0][3]), "-0.36");
         assert_eq!(format!("{:.2}", echelon[1][3]), "0.26");
         assert_eq!(format!("{:.2}", echelon[2][3]), "1.28");
+    }
+
+    #[test]
+    fn float_mat_is_symmetric_test() {
+        let row_a = FloatN::new([1.0, 2.0]);
+        let row_b = FloatN::new([2.0, 1.0]);
+        let mat_a = FloatMat::new([row_a, row_b]);
+        let mat_b = FloatMat::new([row_a, row_a]);
+        assert_eq!(mat_a.is_symmetric(), true);
+        assert_eq!(mat_b.is_symmetric(), false);
+    }
+
+    #[test]
+    fn float_mat_rank_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c, row_a]);
+        let rank = mat_a.rank();
+        assert_eq!(rank, 3);
     }
 }
 

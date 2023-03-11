@@ -50,8 +50,11 @@ impl<const N: usize> FloatN<N> {
         sum.sqrt()
     }
 
-    fn normalize(&self) -> Self {
+    pub fn normalize(&self) -> Self {
         let mag = self.magnitude();
+        if mag == 0.0 {
+            return self.clone();
+        }
         let mut normalize_data = FloatN::zero();
         for i in 0..N {
             normalize_data[i] = self[i] / mag;
@@ -64,7 +67,7 @@ impl<const N: usize> FloatN<N> {
         for i in 0..N {
             result[i] = self[i] + other[i];
             //deal with imprecision for 0.0
-            if result[i].abs() < 1e-12 {
+            if result[i].abs() < f64::EPSILON * 10.0 {
                 result[i] = 0.0;
             }
         }

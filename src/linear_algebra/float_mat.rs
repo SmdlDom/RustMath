@@ -9,6 +9,8 @@ pub struct FloatMat<const N: usize, const M: usize> {
     data: [FloatN<M>; N],
 }
 
+//#region std traits
+
 impl<const N: usize, const M: usize> Index<usize> for FloatMat<N,M> {
     type Output = FloatN<M>;
 
@@ -31,7 +33,11 @@ impl<const N: usize, const M: usize> IndexMut<usize> for FloatMat<N,M> {
     }
 }
 
+//#endregion std traits
+
 impl<const N: usize, const M: usize> FloatMat<N,M> {
+
+    //#region ctor
 
     pub fn new(data: [FloatN<M>; N]) -> Self {
         Self { data }
@@ -41,6 +47,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         Self::new([FloatN::<M>::zero(); N])
     }
 
+    //#endregion ctor
+
+    //#region getters
+
     pub fn rows_count(&self) -> usize {
         N
     }
@@ -48,6 +58,94 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     pub fn cols_count(&self) -> usize {
         M
     }
+
+    pub fn get_column(&self, col_idx: usize) -> FloatN<N> {
+        let mut column = FloatN::<N>::zero();
+        for row_idx in 0..N {
+            column[row_idx] = self[row_idx][col_idx];
+        }
+        column
+    }
+
+    //#endregion getters
+
+    //#region data manipulation
+
+    fn swap_rows(&mut self, i: usize, j: usize) {
+        let row_i = self[i];
+        self[i] = std::mem::replace(&mut self[j], row_i);
+    }
+
+    fn scale_row(&mut self, i: usize, factor: f64) {
+        self[i] = self[i].scale(factor);
+    }
+
+    fn add_scaled_row(&mut self, i: usize, j: usize, factor: f64) {
+        self[i] = self[i].add(&self[j].scale(factor));
+    }
+
+    fn swap_entries(&mut self, row1: usize, col1: usize, row2: usize, col2: usize) {
+        let temp = self[row1][col1];
+        self[row1][col1] = self[row2][col2];
+        self[row2][col2] = temp;
+    }
+
+    fn set_row(&mut self, index: usize, new_row: FloatN<M>) {
+        self.data[index] = new_row;
+    }
+
+    pub fn set_column(&mut self, col_idx: usize, column: FloatN<N>) {
+        for row_idx in 0..N {
+            self[row_idx][col_idx] = column[row_idx];
+        }
+    }
+
+    //#endregion data manipulation
+
+    //#region checks
+
+    pub fn is_upper_triangular(&self) -> bool {
+        for i in 0..N {
+            for j in 0..i {
+                if self[i][j] != 0.0 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    pub fn is_lower_triangular(&self) -> bool {
+        for i in 0..N {
+            for j in (i + 1)..M {
+                if self[i][j] != 0.0 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    pub fn is_orthogonal(&self) -> bool {
+        let transpose = self.transpose();
+        let product = self.mul(&transpose);
+        product.is_identity()
+    }
+
+    pub fn is_equal(&self, other: &Self) -> bool {
+        for i in 0..N {
+            for j in 0..M {
+                if (self[i][j] - other[i][j]).abs() > f64::EPSILON * 10.0 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    //#endregion checks
+
+    //#region matrix operation
 
     pub fn transpose(&self) -> FloatMat<M, N> {
         let mut data = [FloatN::<N>::zero(); M];
@@ -75,7 +173,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
             for j in 0..M {
                 result[i][j] = self[i][j] + other[i][j];
                 //deal with imprecision for 0.0
-                if result[i][j].abs() < 1e-12 {
+                if result[i][j].abs() < f64::EPSILON * 10.0 {
                     result[i][j] = 0.0;
                 }
             }
@@ -83,7 +181,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         result
     }
 
-    pub fn mul<const P: usize>(&self, other: &FloatMat<P, M>) -> FloatMat<N,P> {
+    pub fn mul<const P: usize>(&self, other: &FloatMat<M, P>) -> FloatMat<N,P> {
         let mut result = FloatMat::<N,P>::zero();
 
         for i in 0..N {
@@ -99,34 +197,9 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         result
     }
 
-    //#region Row manipulation
+    //#endregion matrix operation
 
-    fn swap_rows(&mut self, i: usize, j: usize) {
-        let row_i = self[i];
-        self[i] = std::mem::replace(&mut self[j], row_i);
-    }
-
-    fn scale_row(&mut self, i: usize, factor: f64) {
-        self[i] = self[i].scale(factor);
-    }
-
-    fn add_scaled_row(&mut self, i: usize, j: usize, factor: f64) {
-        self[i] = self[i].add(&self[j].scale(factor));
-    }
-
-    fn swap_entries(&mut self, row1: usize, col1: usize, row2: usize, col2: usize) {
-        let temp = self[row1][col1];
-        self[row1][col1] = self[row2][col2];
-        self[row2][col2] = temp;
-    }
-
-    fn set_row(&mut self, index: usize, new_row: &FloatN<M>) {
-        self.data[index] = new_row.clone();
-    }
-
-    //#endregion Row manipulation
-
-    //#region algo on matrix itself
+    //#region matrix algorithm
 
     pub fn row_echelon_form(&self) -> Self {
         let mut rref = self.clone();
@@ -220,10 +293,32 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         rank
     }
 
-    //#endregion algo on matrix itself
+    pub fn qr_decomposition_gs(&self) -> (FloatMat<N, M>, FloatMat<M, M>) {
+        let mut q = FloatMat::<N, M>::zero();
+        let mut r = FloatMat::<M, M>::zero();
+
+        for j in 0..M {
+            let mut v = self.get_column(j);
+            for i in 0..j {
+                let q_i = q.get_column(i);
+                let r_ij = v.dot(&q_i);
+                r[i][j] = r_ij;
+                v = v.sub(&q_i.scale(r_ij));
+            }
+            r[j][j] = v.magnitude();
+            q.set_column(j, v.normalize());
+        }
+
+        (q, r)
+    }
+
+    //#endregion matrix algorithm
 }
 
 impl<const N: usize> FloatMat<N,N> {
+
+    //#region ctor
+
     pub fn identity() -> Self {
         let mut data = Self::zero();
 
@@ -238,6 +333,10 @@ impl<const N: usize> FloatMat<N,N> {
        data
     }
 
+    //#endregion ctor
+
+    //#region checks
+
     pub fn is_symmetric(&self) -> bool {
         for i in 0..N {
             for j in 0..N {
@@ -248,6 +347,28 @@ impl<const N: usize> FloatMat<N,N> {
         }
         true
     }
+
+    pub fn is_identity(&self) -> bool {
+        for i in 0..N {
+            for j in 0..N {
+                if i == j {
+                    if (self[i][j] - 1.0).abs() > f64::EPSILON {
+                        return false;
+                    }
+                } else {
+                    if self[i][j].abs() > f64::EPSILON {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    //#endregion checks
+
+    //#region matrix algorithms
 
     pub fn triangulate_gaussian(&self) -> Self {
         let mut rref = self.clone();
@@ -320,7 +441,7 @@ impl<const N: usize> FloatMat<N,N> {
         }
 
         for i in 0..N {
-            u.set_row(i, &a[i]);
+            u.set_row(i, a[i]);
         }
 
         Some((l, u))
@@ -385,6 +506,8 @@ impl<const N: usize> FloatMat<N,N> {
 
         det
     }
+
+    //#endregion matric algorithms
 }
 
 //#endregion FloatMat
@@ -621,6 +744,70 @@ mod float_mat_tests {
         let mat_a = FloatMat::new([row_a, row_b, row_c, row_a]);
         let rank = mat_a.rank();
         assert_eq!(rank, 3);
+    }
+
+    #[test]
+    fn float_mat_is_upper_lower_triangular_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0]);
+        let row_b = FloatN::new([0.0,1.0,2.0]);
+        let mat_a = FloatMat::new([row_a, row_b]);
+        assert_eq!(mat_a.is_upper_triangular(), true);
+        assert_eq!(mat_a.is_lower_triangular(), false);
+        let row_c = FloatN::new([1.0, 0.0, 0.0]);
+        let row_d = FloatN::new([2.0, 1.0, 0.0]);
+        let mat_b = FloatMat::new([row_c, row_d]);
+        assert_eq!(mat_b.is_upper_triangular(), false);
+        assert_eq!(mat_b.is_lower_triangular(), true);
+    }
+
+    #[test]
+    fn float_mat_is_identity_test() {
+        let row_a = FloatN::new([1.0,0.0,0.0]);
+        let row_b = FloatN::new([0.0,1.0,0.0]);
+        let row_c = FloatN::new([0.0, 0.0, 1.0]);
+        let mut mat_a = FloatMat::new([row_a, row_b, row_c]);
+        assert_eq!(mat_a.is_identity(), true);
+        mat_a.swap_entries(0,0,0,1);
+        assert_eq!(mat_a.is_identity(), false);
+    }
+
+    #[test]
+    fn float_mat_is_orthogonal_test() {
+        let row_a = FloatN::new([1.0,0.0,0.0]);
+        let row_b = FloatN::new([0.0,0.0,1.0]);
+        let row_c = FloatN::new([0.0,-1.0,0.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        assert_eq!(mat_a.is_orthogonal(), true);
+        let row_d = FloatN::new([1.0,2.0,3.0]);
+        let row_e = FloatN::new([4.0,5.0,6.0]);
+        let row_f = FloatN::new([7.0,8.0,9.0]);
+        let mat_b = FloatMat::new([row_d, row_e, row_f]);
+        assert_eq!(mat_b.is_orthogonal(), false);
+    }
+
+    #[test]
+    fn float_mat_is_equal_test() {
+        let mat_a = FloatMat::<2,2>::identity();
+        let mat_b = FloatMat::<2,2>::identity();
+        assert_eq!(mat_a.is_equal(&mat_b), true);
+        let mut mat_c = FloatMat::<2,2>::identity();
+        mat_c.swap_entries(0,0,0,1);
+        assert_eq!(mat_a.is_equal(&mat_c), false);
+    }
+
+    #[test]
+    fn float_mat_qr_decomposition_gs_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let (q, r) = mat_a.qr_decomposition_gs();
+        assert_eq!(q.is_orthogonal(), true);
+        assert_eq!(r.is_upper_triangular(), true);
+        let mul = q.mul(&r);
+        println!("{:?}", mat_a);
+        println!("{:?}", mul);
+        assert_eq!(mul.is_equal(&mat_a), true);
     }
 }
 

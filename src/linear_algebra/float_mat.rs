@@ -47,6 +47,20 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         Self::new([FloatN::<M>::zero(); N])
     }
 
+    pub fn identity() -> Self {
+        let mut data = Self::zero();
+
+        for i in 0..N {
+            for j in 0..N {
+                if i == j {
+                    data[i][j] = 1.0;
+                }
+            }
+        }
+
+        data
+    }
+
     //#endregion ctor
 
     //#region getters
@@ -65,6 +79,53 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
             column[row_idx] = self[row_idx][col_idx];
         }
         column
+    }
+
+    pub fn get_sub_mat<const O: usize,const P: usize>(&self, i: usize, j: usize)
+                                                      -> Option<FloatMat<O,P>> {
+        if O + i > N || P + j > M {
+            return None;
+        }
+
+        let mut sub_mat = FloatMat::<O, P>::zero();
+        for k in 0..O {
+            for l in 0..P {
+                sub_mat[k][l] = self[i + k][j + l];
+            }
+        }
+        Some(sub_mat)
+    }
+
+    pub fn get_sub_mat_on<const O: usize, const P: usize>(&self, i: usize, j: usize, mut k: usize,
+                                                          mut l: usize)
+                                                          -> Option<FloatMat<O,P>> {
+        // first ensure i and j are within a proper range
+        if i > N || j > M {
+            return None;
+        }
+
+        // then we might want to clamp k and l
+        let delta_k = (N) as i32 - (i + k) as i32;
+        let delta_l = (M) as i32 - (j + l) as i32 ;
+        if delta_k < 0 {
+            k -= delta_k.abs() as usize;
+        }
+        if delta_l < 0 {
+            l -= delta_l.abs() as usize;
+        }
+
+        //Then we want to ensure O,P is big enought to fit data in
+        if i + k > O || j + l > P {
+            return None;
+        }
+
+        let mut sub_mat_on = FloatMat::<O, P>::zero();
+        for a in i..k {
+            for b in j..l {
+                sub_mat_on[a][b] = self[a][b];
+            }
+        }
+        Some(sub_mat_on)
     }
 
     //#endregion getters
@@ -181,6 +242,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         result
     }
 
+    pub fn sub(&self, other: &Self) -> Self {
+        self.add(&other.scale(-1.0))
+    }
+
     pub fn mul<const P: usize>(&self, other: &FloatMat<M, P>) -> FloatMat<N,P> {
         let mut result = FloatMat::<N,P>::zero();
 
@@ -191,6 +256,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
                     sum += self[i][k] * other[k][j];
                 }
                 result[i][j] = sum;
+                //deal with imprecision for 0.0
+                if result[i][j].abs() < f64::EPSILON * 10.0 {
+                    result[i][j] = 0.0;
+                }
             }
         }
 
@@ -312,26 +381,32 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         (q, r)
     }
 
+    pub fn qr_decomposition_householder(&self) -> (FloatMat<N, M>, FloatMat<M, M>) {
+        let mut q = FloatMat::<N, M>::identity();
+        let mut r: FloatMat<M,M> = self.get_sub_mat_on::<M,M>(0,0, M, M).unwrap();
+        for j in 0..M.min(N-1) {
+            let mut v = r.get_column(j);
+            for k in 0..j {
+                v[k] = 0.0;
+            }
+            let norm = v.magnitude();
+            let sign = if v[0] > 0.0 { 1.0 } else { -1.0 };
+            v[j] = v[j] + sign * norm;
+            let dot = v.dot(&v);
+            let h = FloatMat::<M, M>::identity().sub(&v.kronecker(&v.scale(2.0 / dot)));
+            r = h.mul(&r);
+            q = q.mul(&h);
+        }
+
+        (q, r)
+    }
+
     //#endregion matrix algorithm
 }
 
 impl<const N: usize> FloatMat<N,N> {
 
     //#region ctor
-
-    pub fn identity() -> Self {
-        let mut data = Self::zero();
-
-        for i in 0..N {
-            for j in 0..N {
-                if i == j {
-                    data[i][j] = 1.0;
-                }
-            }
-        }
-
-       data
-    }
 
     //#endregion ctor
 
@@ -805,8 +880,19 @@ mod float_mat_tests {
         assert_eq!(q.is_orthogonal(), true);
         assert_eq!(r.is_upper_triangular(), true);
         let mul = q.mul(&r);
-        println!("{:?}", mat_a);
-        println!("{:?}", mul);
+        assert_eq!(mul.is_equal(&mat_a), true);
+    }
+
+    #[test]
+    fn float_mat_qr_decomposition_householder_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let (q, r) = mat_a.qr_decomposition_householder();
+        assert_eq!(q.is_orthogonal(), true);
+        assert_eq!(r.is_upper_triangular(), true);
+        let mul = q.mul(&r);
         assert_eq!(mul.is_equal(&mat_a), true);
     }
 }

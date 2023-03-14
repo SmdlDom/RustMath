@@ -1,4 +1,5 @@
 use std::ops::{Index,IndexMut};
+use crate::linear_algebra::float_mat::FloatMat;
 
 //#region FloatN
 
@@ -82,6 +83,14 @@ impl<const N: usize> FloatN<N> {
         result
     }
 
+    pub fn add_scalar(&self, scalar: f64) -> Self {
+        let mut result = self.clone();
+        for i in 0..N {
+            result[i] += scalar;
+        }
+        result
+    }
+
     pub fn sub(&self, other: &Self) -> Self {
         self.add(&other.scale(-1.0))
     }
@@ -92,6 +101,16 @@ impl<const N: usize> FloatN<N> {
             res += self[i] * other[i];
         }
         res
+    }
+
+    pub fn kronecker(&self, other: &Self) -> FloatMat<N, N> {
+        let mut result = FloatMat::zero();
+        for i in 0..N {
+            for j in 0..N {
+                result[i][j] = self[i] * other[j];
+            }
+        }
+        result
     }
 
     pub fn distance(&self, other: &Self) -> f64 {
@@ -256,6 +275,16 @@ mod float_n_tests {
         let proj_plus_rej = proj_x_on_y.add(&rej_x_on_y);
         assert_eq!(proj_plus_rej[0], 1.0);
         assert_eq!(proj_plus_rej[1], 2.0);
+    }
+
+    #[test]
+    fn float_n_kronecker_product_test() {
+        let x = FloatN::new([1.0,2.0,3.0]);
+        let y= FloatN::new([9.0,8.0,7.0]);
+        let outer_prod = x.kronecker(&y);
+        assert_eq!(outer_prod[0][0], 9.0);
+        assert_eq!(outer_prod[1][1], 16.0);
+        assert_eq!(outer_prod[2][2], 21.0);
     }
 }
 

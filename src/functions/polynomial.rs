@@ -23,7 +23,7 @@ impl<const AMOUNT_OF_VAR: usize> Polynomial<AMOUNT_OF_VAR> {
         self.terms.len()
     }
 
-    //#ednregion getters
+    //#endregion getters
 
     //#region data manipulation
 

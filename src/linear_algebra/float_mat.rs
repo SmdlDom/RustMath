@@ -1,32 +1,35 @@
 use std::ops::{Index, IndexMut};
+use crate::functions::polynomial::Polynomial;
 use crate::linear_algebra::float_vec::FloatN;
 
 //#region FloatMat
 
-#[derive(Debug, Copy, Clone)]
-pub struct FloatMat<const N: usize, const M: usize> {
+#[derive(Debug, Clone)]
+pub struct FloatMat {
     //Row major
-    data: [FloatN<M>; N],
+    rows: usize,
+    cols: usize,
+    data: Vec<FloatN>,
 }
 
 //#region std traits
 
-impl<const N: usize, const M: usize> Index<usize> for FloatMat<N,M> {
-    type Output = FloatN<M>;
+impl Index<usize> for FloatMat {
+    type Output = FloatN;
 
     fn index(&self, index: usize) -> &Self::Output {
         assert!(
-            index < N,
+            index < self.rows,
             "Error: Out of Bound."
         );
         &self.data[index]
     }
 }
 
-impl<const N: usize, const M: usize> IndexMut<usize> for FloatMat<N,M> {
+impl IndexMut<usize> for FloatMat {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         assert!(
-            index < N,
+            index < self.rows,
             "Error: Out of Bound."
         );
         &mut self.data[index]
@@ -35,23 +38,28 @@ impl<const N: usize, const M: usize> IndexMut<usize> for FloatMat<N,M> {
 
 //#endregion std traits
 
-impl<const N: usize, const M: usize> FloatMat<N,M> {
+impl FloatMat {
 
     //#region ctor
 
-    pub fn new(data: [FloatN<M>; N]) -> Self {
-        Self { data }
+    pub fn new(data: Vec<FloatN>) -> Self {
+        let rows = data.len();
+        let cols = data[0].len();
+        for i in 0..rows {
+            assert_eq!(data[i].len(), cols, "Error: Not all rows are of the same dimension")
+        }
+        Self { data, rows, cols }
     }
 
-    pub fn zero() -> Self {
-        Self::new([FloatN::<M>::zero(); N])
+    pub fn zero(rows: usize, cols: usize) -> Self {
+        Self::new(vec!(FloatN::zero(cols); rows))
     }
 
-    pub fn identity() -> Self {
-        let mut data = Self::zero();
+    pub fn identity(rows: usize, cols: usize) -> Self {
+        let mut data = Self::zero(rows, cols);
 
-        for i in 0..N {
-            for j in 0..N {
+        for i in 0..rows {
+            for j in 0..rows {
                 if i == j {
                     data[i][j] = 1.0;
                 }
@@ -66,62 +74,62 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     //#region getters
 
     pub fn rows_count(&self) -> usize {
-        N
+        self.rows
     }
 
     pub fn cols_count(&self) -> usize {
-        M
+        self.cols
     }
 
-    pub fn get_column(&self, col_idx: usize) -> FloatN<N> {
-        let mut column = FloatN::<N>::zero();
-        for row_idx in 0..N {
+    pub fn get_column(&self, col_idx: usize) -> FloatN {
+        let mut column = FloatN::zero(self.rows);
+        for row_idx in 0..self.rows {
             column[row_idx] = self[row_idx][col_idx];
         }
         column
     }
 
-    pub fn get_sub_mat<const O: usize,const P: usize>(&self, i: usize, j: usize)
-                                                      -> Option<FloatMat<O,P>> {
-        if O + i > N || P + j > M {
+    pub fn get_sub_mat(&self, i_start: usize, j_start: usize,
+                       i_len: usize, j_len: usize) -> Option<FloatMat> {
+        if i_start + i_len > self.rows || j_start + j_len > self.cols {
             return None;
         }
 
-        let mut sub_mat = FloatMat::<O, P>::zero();
-        for k in 0..O {
-            for l in 0..P {
-                sub_mat[k][l] = self[i + k][j + l];
+        let mut sub_mat = FloatMat::zero(i_len, j_len);
+        for k in 0..i_len {
+            for l in 0..j_len {
+                sub_mat[k][l] = self[i_start + k][j_start + l];
             }
         }
         Some(sub_mat)
     }
 
-    pub fn get_sub_mat_on<const O: usize, const P: usize>(&self, i: usize, j: usize, mut k: usize,
-                                                          mut l: usize)
-                                                          -> Option<FloatMat<O,P>> {
+    pub fn get_sub_mat_on(&self, i_start: usize, j_start: usize, mut i_len: usize,
+                          mut j_len: usize, onto_rows: usize, onto_cols: usize)
+                          -> Option<FloatMat> {
         // first ensure i and j are within a proper range
-        if i > N || j > M {
+        if i_start > self.rows || j_start > self.cols {
             return None;
         }
 
         // then we might want to clamp k and l
-        let delta_k = (N) as i32 - (i + k) as i32;
-        let delta_l = (M) as i32 - (j + l) as i32 ;
+        let delta_k = (self.rows) as i32 - (i_start + i_len) as i32;
+        let delta_l = (self.cols) as i32 - (j_start + j_len) as i32 ;
         if delta_k < 0 {
-            k -= delta_k.abs() as usize;
+            i_len -= delta_k.abs() as usize;
         }
         if delta_l < 0 {
-            l -= delta_l.abs() as usize;
+            j_len -= delta_l.abs() as usize;
         }
 
         //Then we want to ensure O,P is big enought to fit data in
-        if i + k > O || j + l > P {
+        if i_start + i_len > onto_rows || j_start + j_len > onto_cols {
             return None;
         }
 
-        let mut sub_mat_on = FloatMat::<O, P>::zero();
-        for a in i..k {
-            for b in j..l {
+        let mut sub_mat_on = FloatMat::zero(onto_rows, onto_cols);
+        for a in i_start..i_len {
+            for b in j_start..j_len {
                 sub_mat_on[a][b] = self[a][b];
             }
         }
@@ -133,7 +141,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     //#region data manipulation
 
     fn swap_rows(&mut self, i: usize, j: usize) {
-        let row_i = self[i];
+        let row_i = self[i].clone();
         self[i] = std::mem::replace(&mut self[j], row_i);
     }
 
@@ -151,12 +159,14 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         self[row2][col2] = temp;
     }
 
-    fn set_row(&mut self, index: usize, new_row: FloatN<M>) {
+    fn set_row(&mut self, index: usize, new_row: FloatN) {
+        assert_eq!(self.cols, new_row.len(), "Error: new row is not of the proper size");
         self.data[index] = new_row;
     }
 
-    pub fn set_column(&mut self, col_idx: usize, column: FloatN<N>) {
-        for row_idx in 0..N {
+    pub fn set_column(&mut self, col_idx: usize, column: FloatN) {
+        assert_eq!(self.rows, column.len(), "Error: new col is not of the proper size");
+        for row_idx in 0..self.rows {
             self[row_idx][col_idx] = column[row_idx];
         }
     }
@@ -166,7 +176,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     //#region checks
 
     pub fn is_upper_triangular(&self) -> bool {
-        for i in 0..N {
+        for i in 0..self.rows {
             for j in 0..i {
                 if self[i][j] != 0.0 {
                     return false;
@@ -177,8 +187,8 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     }
 
     pub fn is_lower_triangular(&self) -> bool {
-        for i in 0..N {
-            for j in (i + 1)..M {
+        for i in 0..self.rows {
+            for j in (i + 1)..self.cols {
                 if self[i][j] != 0.0 {
                     return false;
                 }
@@ -194,8 +204,8 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     }
 
     pub fn is_equal(&self, other: &Self) -> bool {
-        for i in 0..N {
-            for j in 0..M {
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 if (self[i][j] - other[i][j]).abs() > f64::EPSILON * 10.0 {
                     return false;
                 }
@@ -208,20 +218,20 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
 
     //#region matrix operation
 
-    pub fn transpose(&self) -> FloatMat<M, N> {
-        let mut data = [FloatN::<N>::zero(); M];
-        for i in 0..N {
-            for j in 0..M {
+    pub fn transpose(&self) -> FloatMat {
+        let mut data = Self::zero(self.cols, self.rows);
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 data[j][i] = self[i][j];
             }
         }
-        FloatMat::new(data)
+        data
     }
 
     pub fn scale(&self, factor: f64) -> Self {
-        let mut result = Self::zero();
-        for i in 0..N {
-            for j in 0..M {
+        let mut result = Self::zero(self.rows, self.cols);
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 result[i][j] = self[i][j] * factor;
             }
         }
@@ -229,9 +239,9 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        let mut result = Self::zero();
-        for i in 0..N {
-            for j in 0..M {
+        let mut result = Self::zero(self.rows, self.cols);
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 result[i][j] = self[i][j] + other[i][j];
                 //deal with imprecision for 0.0
                 if result[i][j].abs() < f64::EPSILON * 10.0 {
@@ -246,13 +256,15 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         self.add(&other.scale(-1.0))
     }
 
-    pub fn mul<const P: usize>(&self, other: &FloatMat<M, P>) -> FloatMat<N,P> {
-        let mut result = FloatMat::<N,P>::zero();
+    pub fn mul(&self, other: &FloatMat) -> FloatMat {
+        assert_eq!(self.cols, other.rows, "Error: Matrixs are not compatible for multiplication");
 
-        for i in 0..N {
-            for j in 0..P {
+        let mut result = FloatMat::zero(self.rows, other.cols);
+
+        for i in 0..self.rows {
+            for j in 0..other.cols {
                 let mut sum = 0.0;
-                for k in 0..M {
+                for k in 0..self.cols {
                     sum += self[i][k] * other[k][j];
                 }
                 result[i][j] = sum;
@@ -274,10 +286,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         let mut rref = self.clone();
         let mut pivot = 0;
 
-        for i in 0..N {
+        for i in 0..self.rows {
             // Find pivot row
             let mut max_row = i;
-            for j in i+1..N {
+            for j in i+1..self.rows {
                 if rref[j][pivot].abs() > rref[max_row][pivot].abs() {
                     max_row = j;
                 }
@@ -291,19 +303,19 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
             // Scale pivot row to have a leading coefficient of 1
             let pivot_coeff = rref[i][pivot];
             if pivot_coeff != 0.0 {
-                for k in 0..M {
+                for k in 0..self.cols {
                     rref[i][k] /= pivot_coeff;
                 }
             }
 
             // Make all rows below pivot row zero in current column
-            for j in i+1..N {
+            for j in i+1..self.rows {
                 let factor = rref[j][pivot];
                 rref.add_scaled_row(j, i, -factor);
             }
 
             pivot += 1;
-            if pivot >= M {
+            if pivot >= self.cols {
                 break;
             }
         }
@@ -314,10 +326,10 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         let mut rref = self.row_echelon_form();
         let mut pivot = 0;
 
-        for i in 0..N {
+        for i in 0..self.rows {
             // Find pivot row
             let mut pivot_row = None;
-            for j in pivot..M {
+            for j in pivot..self.cols {
                 if rref[i][j] != 0.0 {
                     pivot_row = Some(j);
                     break;
@@ -327,7 +339,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
             // If there is a pivot in this row
             if let Some(pivot_col) = pivot_row {
                 // Make all other rows zero in current column
-                for j in 0..N {
+                for j in 0..self.rows {
                     if i != j && rref[j][pivot_col] != 0.0 {
                         let factor = rref[j][pivot_col];
                         rref.add_scaled_row(j, i, -factor);
@@ -335,7 +347,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
                 }
 
                 pivot += 1;
-                if pivot >= M {
+                if pivot >= self.cols {
                     break;
                 }
             }
@@ -346,9 +358,9 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     pub fn rank(&self) -> i32 {
         let ref rref = self.row_echelon_form();
         let mut rank = 0;
-        for i in 0..N {
+        for i in 0..self.rows {
             let mut is_zero_row = true;
-            for j in 0..M {
+            for j in 0..self.cols {
                 if rref[i][j] != 0.0 {
                     is_zero_row = false;
                     break;
@@ -362,11 +374,11 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         rank
     }
 
-    pub fn qr_decomposition_gs(&self) -> (FloatMat<N, M>, FloatMat<M, M>) {
-        let mut q = FloatMat::<N, M>::zero();
-        let mut r = FloatMat::<M, M>::zero();
+    pub fn qr_decomposition_gs(&self) -> (FloatMat, FloatMat) {
+        let mut q = FloatMat::zero(self.rows, self.cols);
+        let mut r = FloatMat::zero(self.cols, self.cols);
 
-        for j in 0..M {
+        for j in 0..self.cols {
             let mut v = self.get_column(j);
             for i in 0..j {
                 let q_i = q.get_column(i);
@@ -381,7 +393,7 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         (q, r)
     }
 
-    pub fn lq_decomposition_gs(&self) -> (FloatMat<N,N>, FloatMat<N,M>) {
+    pub fn lq_decomposition_gs(&self) -> (FloatMat, FloatMat) {
         let (q_transpose, r_transpose) =
             self.transpose().qr_decomposition_gs();
         let q = q_transpose.transpose();
@@ -389,10 +401,11 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         (r, q)
     }
 
-    pub fn qr_decomposition_householder(&self) -> (FloatMat<N, M>, FloatMat<M, M>) {
-        let mut q = FloatMat::<N, M>::identity();
-        let mut r: FloatMat<M,M> = self.get_sub_mat_on::<M,M>(0,0, M, M).unwrap();
-        for j in 0..M.min(N-1) {
+    pub fn qr_decomposition_householder(&self) -> (FloatMat, FloatMat) {
+        let mut q = FloatMat::identity(self.rows, self.cols);
+        let mut r = self.get_sub_mat_on(0,0, self.cols, self.cols,
+                                        self.cols, self.cols).unwrap();
+        for j in 0..self.cols.min(self.rows-1) {
             let mut v = r.get_column(j);
             for k in 0..j {
                 v[k] = 0.0;
@@ -401,7 +414,8 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
             let sign = if v[0] > 0.0 { 1.0 } else { -1.0 };
             v[j] = v[j] + sign * norm;
             let dot = v.dot(&v);
-            let h = FloatMat::<M, M>::identity().sub(&v.kronecker(&v.scale(2.0 / dot)));
+            let h = FloatMat::identity(self.cols, self.cols)
+                .sub(&v.kronecker(&v.scale(2.0 / dot)));
             r = h.mul(&r);
             q = q.mul(&h);
         }
@@ -410,19 +424,15 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
     }
 
     //#endregion matrix algorithm
-}
 
-impl<const N: usize> FloatMat<N,N> {
-
-    //#region ctor
-
-    //#endregion ctor
+    //#region squared matrix
 
     //#region checks
 
     pub fn is_symmetric(&self) -> bool {
-        for i in 0..N {
-            for j in 0..N {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 if self[i][j] != self[j][i] {
                     return false;
                 }
@@ -432,8 +442,9 @@ impl<const N: usize> FloatMat<N,N> {
     }
 
     pub fn is_identity(&self) -> bool {
-        for i in 0..N {
-            for j in 0..N {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        for i in 0..self.rows {
+            for j in 0..self.cols {
                 if i == j {
                     if (self[i][j] - 1.0).abs() > f64::EPSILON {
                         return false;
@@ -454,12 +465,13 @@ impl<const N: usize> FloatMat<N,N> {
     //#region matrix algorithms
 
     pub fn triangulate_gaussian(&self) -> Self {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
         let mut rref = self.clone();
         //Gaussian elimination with maximum selection in column
-        for i in 0..N {
+        for i in 0..self.rows {
             // Find the row with maximum absolute value in the i-th column
             let mut j_max = i;
-            for j in (i + 1)..N {
+            for j in (i + 1)..self.rows {
                 if rref[j][i].abs() > rref[j_max][i].abs() {
                     j_max = j;
                 }
@@ -477,7 +489,7 @@ impl<const N: usize> FloatMat<N,N> {
 
             // Subtract multiples of row i from the rows below it to make the i-th column elements
             // below the i-th row zero
-            for j in (i + 1)..N {
+            for j in (i + 1)..self.rows {
                 let factor = rref[j][i] / rref[i][i];
                 rref.add_scaled_row(j, i, -factor);
             }
@@ -486,14 +498,15 @@ impl<const N: usize> FloatMat<N,N> {
         rref
     }
 
-    pub fn lu_decomposition_gaussian_elimination(&self) -> Option<(FloatMat<N, N>, FloatMat<N, N>)> {
+    pub fn lu_decomposition_gaussian_elimination(&self) -> Option<(FloatMat, FloatMat)> {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
         let mut a = self.clone();
-        let mut l = FloatMat::identity();
-        let mut u = FloatMat::zero();
+        let mut l = FloatMat::identity(self.rows, self.rows);
+        let mut u = FloatMat::zero(self.rows, self.rows);
 
-        for i in 0..N {
+        for i in 0..self.rows {
             // Perform row swaps to avoid zero pivots
-            for j in i..N {
+            for j in i..self.rows {
                 if a[j][i] != 0.0 {
                     a.swap_rows(i, j);
                     l.swap_rows(i, j);
@@ -504,14 +517,14 @@ impl<const N: usize> FloatMat<N,N> {
                     }
                     break;
                 }
-                if j == N - 1 {
+                if j == self.rows - 1 {
                     // Matrix is singular
                     return None;
                 }
             }
 
             // Perform Gaussian elimination on current column
-            for j in i+1..N {
+            for j in i+1..self.rows {
                 let pivot = a[i][i];
                 if pivot == 0.0 {
                     // Matrix is singular
@@ -523,19 +536,20 @@ impl<const N: usize> FloatMat<N,N> {
             }
         }
 
-        for i in 0..N {
-            u.set_row(i, a[i]);
+        for i in 0..self.rows {
+            u.set_row(i, a[i].clone());
         }
 
         Some((l, u))
     }
 
-    pub fn lu_decomposition_doolittle(&self) -> Option<(FloatMat<N,N>, FloatMat<N,N>)> {
-        let mut l = FloatMat::identity();
-        let mut u = FloatMat::zero();
+    pub fn lu_decomposition_doolittle(&self) -> Option<(FloatMat, FloatMat)> {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        let mut l = FloatMat::identity(self.rows, self.rows);
+        let mut u = FloatMat::zero(self.rows, self.rows);
 
-        for j in 0..N {
-            for i in j..N {
+        for j in 0..self.rows {
+            for i in j..self.rows {
                 let sum = (0..j).fold(0.0, |acc, k| acc + l[j][k] * u[k][i]);
                 u[j][i] = self[j][i] - sum;
 
@@ -544,7 +558,7 @@ impl<const N: usize> FloatMat<N,N> {
                 }
             }
 
-            for i in (j + 1)..N {
+            for i in (j + 1)..self.rows {
                 let sum = (0..j).fold(0.0, |acc, k| acc + l[i][k] * u[k][j]);
                 l[i][j] = (self[i][j] - sum) / u[j][j];
             }
@@ -553,12 +567,13 @@ impl<const N: usize> FloatMat<N,N> {
         Some((l, u))
     }
 
-    pub fn lu_decomposition_crout(&self) -> Option<(FloatMat<N, N>, FloatMat<N, N>)> {
-        let mut u = FloatMat::identity();
-        let mut l = FloatMat::zero();
+    pub fn lu_decomposition_crout(&self) -> Option<(FloatMat, FloatMat)> {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        let mut u = FloatMat::identity(self.rows, self.rows);
+        let mut l = FloatMat::zero(self.rows, self.rows);
 
-        for j in 0..N {
-            for i in j..N {
+        for j in 0..self.rows {
+            for i in j..self.rows {
                 let sum = (0..j).fold(0.0, |acc, k| acc + l[i][k] * u[k][j]);
                 l[i][j] = self[i][j] - sum;
 
@@ -567,7 +582,7 @@ impl<const N: usize> FloatMat<N,N> {
                 }
             }
 
-            for i in j..N {
+            for i in j..self.rows {
                 let sum = (0..j).fold(0.0, |acc, k| acc + l[j][k] * u[k][i]);
                 u[j][i] = (self[j][i] - sum) / l[j][j];
             }
@@ -577,20 +592,37 @@ impl<const N: usize> FloatMat<N,N> {
     }
 
     pub fn det(&self) -> f64 {
-        let mut det = if N % 2 == 0 {1.0} else {-1.0};
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        let mut det = if self.rows % 2 == 0 {1.0} else {-1.0};
 
         // Triangulize the matrix
         let mat_triangulated = self.triangulate_gaussian();
 
         // Compute the determinant as the product of the diagonal elements
-        for i in 0..N {
+        for i in 0..self.rows {
             det *= mat_triangulated[i][i];
         }
 
         det
     }
 
-    //#endregion matric algorithms
+    pub fn characteristic_polynomial(&self) -> Polynomial<1> {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        let mut poly = Polynomial::new();
+        poly.add_term(1.0,[1]);
+
+        for i in 1..self.rows {
+            let submat = self.get_sub_mat(0, 0, i, i).unwrap();
+            let det = submat.det();
+            let coeff = (-1.0_f64).powf(i as f64) * det;
+            poly.add_term(coeff, [self.rows - i + 1]);
+        }
+
+        poly
+    }
+
+    //#endregion matrix algorithms
+    //#endregion squared matrix
 }
 
 //#endregion FloatMat
@@ -603,10 +635,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_new_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
+        let row_a = FloatN::new(vec!(1.0,2.0,3.0));
         let row_b = row_a.scale(2.0);
         let row_c = row_a.scale(3.0);
-        let mat = FloatMat::new([row_a, row_b, row_c]);
+        let mat = FloatMat::new(vec![row_a, row_b, row_c]);
         assert_eq!(mat[0][0], 1.0);
         assert_eq!(mat[1][1], 4.0);
         assert_eq!(mat[2][2], 9.0);
@@ -614,7 +646,7 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_identity_test() {
-        let identity = FloatMat::<3,3>::identity();
+        let identity = FloatMat::identity(3,3);
         for i in 0..3 {
             for j in 0..3 {
                 if i == j {
@@ -628,9 +660,9 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_transpose_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
         let row_b = row_a.scale(2.0);
-        let mat = FloatMat::new([row_a, row_b]);
+        let mat = FloatMat::new(vec![row_a, row_b]);
         let mat_prime = mat.transpose();
         assert_eq!(mat_prime[0][0], 1.0);
         assert_eq!(mat_prime[0][1], 2.0);
@@ -639,9 +671,9 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_scale_test() {
-        let row_a = FloatN::new([1.0,2.0]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
         let row_b = row_a.scale(2.0);
-        let mat = FloatMat::new([row_a, row_b]);
+        let mat = FloatMat::new(vec![row_a, row_b]);
         let mat_scaled = mat.scale(2.0);
         assert_eq!(mat_scaled[0][0], 2.0);
         assert_eq!(mat_scaled[1][1], 8.0);
@@ -649,10 +681,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_add_test() {
-        let row_a = FloatN::new([1.0,2.0]);
-        let row_b = FloatN::new([2.0,3.0]);
-        let mat_a = FloatMat::new([row_a, row_b]);
-        let mat_b = FloatMat::new([row_b, row_a]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
+        let row_b = FloatN::new(vec![2.0,3.0]);
+        let mat_a = FloatMat::new(vec![row_a.clone(), row_b.clone()]);
+        let mat_b = FloatMat::new(vec![row_b, row_a]);
         let mat_add = mat_a.add(&mat_b);
         assert_eq!(mat_add[0][0], 3.0);
         assert_eq!(mat_add[1][1], 5.0);
@@ -660,9 +692,9 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_mul_test() {
-        let row_a = FloatN::new([1.0,2.0]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
         let row_b = row_a.scale(2.0);
-        let mat_a = FloatMat::new([row_a, row_b]);
+        let mat_a = FloatMat::new(vec![row_a, row_b]);
         let mat_b = mat_a.scale(2.0);
         let mat_mul = mat_a.mul(&mat_b);
         assert_eq!(mat_mul[0][0], 10.0);
@@ -671,9 +703,9 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_swap_rows_test() {
-        let row_a = FloatN::new([1.0,2.0]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
         let row_b = row_a.scale(2.0);
-        let mut mat_a = FloatMat::new([row_a, row_b]);
+        let mut mat_a = FloatMat::new(vec![row_a, row_b]);
         mat_a.swap_rows(0,1);
         assert_eq!(mat_a[0][0], 2.0);
         assert_eq!(mat_a[1][1], 2.0);
@@ -681,28 +713,28 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_scale_row_test() {
-        let row_a = FloatN::new([1.0,2.0]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
         let row_b = row_a.scale(2.0);
-        let mut mat_a = FloatMat::new([row_a, row_b]);
+        let mut mat_a = FloatMat::new(vec![row_a, row_b]);
         mat_a.scale_row(0,2.0);
         assert_eq!(mat_a[0][0], 2.0);
     }
 
     #[test]
     fn float_mat_add_scale_row_test() {
-        let row_a = FloatN::new([1.0,2.0]);
+        let row_a = FloatN::new(vec![1.0,2.0]);
         let row_b = row_a.scale(2.0);
-        let mut mat_a = FloatMat::new([row_a, row_b]);
+        let mut mat_a = FloatMat::new(vec![row_a, row_b]);
         mat_a.add_scaled_row(0,1,2.0);
         assert_eq!(mat_a[0][0], 5.0);
     }
 
     #[test]
     fn float_mat_triangulate_gaussian_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let triangulated =  mat_a.triangulate_gaussian();
         assert_eq!(triangulated[0][0], 5.0);
         assert_eq!(triangulated[1][1], 6.4);
@@ -711,10 +743,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_lu_decomposition_gaussian_elimination_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let opts =  mat_a.lu_decomposition_gaussian_elimination();
         match opts {
             None => assert!(false),
@@ -737,10 +769,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_lu_decomposition_doolittle_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let opts =  mat_a.lu_decomposition_doolittle();
         match opts {
             None => assert!(false),
@@ -763,10 +795,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_lu_decomposition_crout_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let opts =  mat_a.lu_decomposition_crout();
         match opts {
             None => assert!(false),
@@ -789,20 +821,20 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_det_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let det = mat_a.det();
         assert_eq!(det, -85.0);
     }
 
     #[test]
     fn float_mat_row_echelon_form_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let echelon = mat_a.reduced_row_echelon_form();
         assert_eq!(format!("{:.2}", echelon[0][3]), "-0.36");
         assert_eq!(format!("{:.2}", echelon[1][3]), "0.26");
@@ -811,44 +843,44 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_is_symmetric_test() {
-        let row_a = FloatN::new([1.0, 2.0]);
-        let row_b = FloatN::new([2.0, 1.0]);
-        let mat_a = FloatMat::new([row_a, row_b]);
-        let mat_b = FloatMat::new([row_a, row_a]);
+        let row_a = FloatN::new(vec![1.0, 2.0]);
+        let row_b = FloatN::new(vec![2.0, 1.0]);
+        let mat_a = FloatMat::new(vec![row_a.clone(), row_b.clone()]);
+        let mat_b = FloatMat::new(vec![row_a.clone(), row_a.clone()]);
         assert_eq!(mat_a.is_symmetric(), true);
         assert_eq!(mat_b.is_symmetric(), false);
     }
 
     #[test]
     fn float_mat_rank_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c, row_a]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a.clone(), row_b, row_c, row_a]);
         let rank = mat_a.rank();
         assert_eq!(rank, 3);
     }
 
     #[test]
     fn float_mat_is_upper_lower_triangular_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0]);
-        let row_b = FloatN::new([0.0,1.0,2.0]);
-        let mat_a = FloatMat::new([row_a, row_b]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![0.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b]);
         assert_eq!(mat_a.is_upper_triangular(), true);
         assert_eq!(mat_a.is_lower_triangular(), false);
-        let row_c = FloatN::new([1.0, 0.0, 0.0]);
-        let row_d = FloatN::new([2.0, 1.0, 0.0]);
-        let mat_b = FloatMat::new([row_c, row_d]);
+        let row_c = FloatN::new(vec![1.0, 0.0, 0.0]);
+        let row_d = FloatN::new(vec![2.0, 1.0, 0.0]);
+        let mat_b = FloatMat::new(vec![row_c, row_d]);
         assert_eq!(mat_b.is_upper_triangular(), false);
         assert_eq!(mat_b.is_lower_triangular(), true);
     }
 
     #[test]
     fn float_mat_is_identity_test() {
-        let row_a = FloatN::new([1.0,0.0,0.0]);
-        let row_b = FloatN::new([0.0,1.0,0.0]);
-        let row_c = FloatN::new([0.0, 0.0, 1.0]);
-        let mut mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,0.0,0.0]);
+        let row_b = FloatN::new(vec![0.0,1.0,0.0]);
+        let row_c = FloatN::new(vec![0.0, 0.0, 1.0]);
+        let mut mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         assert_eq!(mat_a.is_identity(), true);
         mat_a.swap_entries(0,0,0,1);
         assert_eq!(mat_a.is_identity(), false);
@@ -856,34 +888,34 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_is_orthogonal_test() {
-        let row_a = FloatN::new([1.0,0.0,0.0]);
-        let row_b = FloatN::new([0.0,0.0,1.0]);
-        let row_c = FloatN::new([0.0,-1.0,0.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,0.0,0.0]);
+        let row_b = FloatN::new(vec![0.0,0.0,1.0]);
+        let row_c = FloatN::new(vec![0.0,-1.0,0.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         assert_eq!(mat_a.is_orthogonal(), true);
-        let row_d = FloatN::new([1.0,2.0,3.0]);
-        let row_e = FloatN::new([4.0,5.0,6.0]);
-        let row_f = FloatN::new([7.0,8.0,9.0]);
-        let mat_b = FloatMat::new([row_d, row_e, row_f]);
+        let row_d = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_e = FloatN::new(vec![4.0,5.0,6.0]);
+        let row_f = FloatN::new(vec![7.0,8.0,9.0]);
+        let mat_b = FloatMat::new(vec![row_d, row_e, row_f]);
         assert_eq!(mat_b.is_orthogonal(), false);
     }
 
     #[test]
     fn float_mat_is_equal_test() {
-        let mat_a = FloatMat::<2,2>::identity();
-        let mat_b = FloatMat::<2,2>::identity();
+        let mat_a = FloatMat::identity(2,2);
+        let mat_b = FloatMat::identity(2,2);
         assert_eq!(mat_a.is_equal(&mat_b), true);
-        let mut mat_c = FloatMat::<2,2>::identity();
+        let mut mat_c = FloatMat::identity(2,2);
         mat_c.swap_entries(0,0,0,1);
         assert_eq!(mat_a.is_equal(&mat_c), false);
     }
 
     #[test]
     fn float_mat_qr_decomposition_gs_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let (q, r) = mat_a.qr_decomposition_gs();
         assert_eq!(q.is_orthogonal(), true);
         assert_eq!(r.is_upper_triangular(), true);
@@ -893,10 +925,10 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_lq_decomposition_gs_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let (l, q) = mat_a.lq_decomposition_gs();
         assert_eq!(q.is_orthogonal(), true);
         assert_eq!(l.is_lower_triangular(), true);
@@ -906,15 +938,25 @@ mod float_mat_tests {
 
     #[test]
     fn float_mat_qr_decomposition_householder_test() {
-        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
-        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
-        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
-        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let (q, r) = mat_a.qr_decomposition_householder();
         assert_eq!(q.is_orthogonal(), true);
         assert_eq!(r.is_upper_triangular(), true);
         let mul = q.mul(&r);
         assert_eq!(mul.is_equal(&mat_a), true);
+    }
+
+    #[test]
+    fn float_mat_char_poly_test() {
+        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
+        let poly = mat_a.characteristic_polynomial();
+        println!("{:?}", poly);
     }
 }
 

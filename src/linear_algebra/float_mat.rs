@@ -606,22 +606,38 @@ impl FloatMat {
         det
     }
 
+    pub fn trace(&self) -> f64 {
+        assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+
+        let mut tr = 0.0;
+
+        for i in 0..self.rows {
+            tr += self[i][i];
+        }
+
+        tr
+    }
+
     pub fn characteristic_polynomial(&self) -> Polynomial<1> {
         assert_eq!(self.rows, self.cols, "Error: Matrix is not square");
+        //faddeev-leverrier method
         let mut poly = Polynomial::new();
-        poly.add_term(1.0,[1]);
 
-        for i in 1..self.rows {
-            let submat = self.get_sub_mat(0, 0, i, i).unwrap();
-            let det = submat.det();
-            let coeff = (-1.0_f64).powf(i as f64) * det;
-            poly.add_term(coeff, [self.rows - i + 1]);
+        let mut c = Self::zero(self.rows, self.rows);
+        let mut cn = 1.0;
+        poly.add_term(cn, [self.rows ]);
+
+        for i in 1..(self.rows + 1) {
+            c = self.mul(&c.add(&Self::identity(self.rows, self.cols).scale(cn)));
+            cn = c.trace() / (-(i as f64));
+            poly.add_term(cn, [self.rows - i]);
         }
 
         poly
     }
 
     //#endregion matrix algorithms
+
     //#endregion squared matrix
 }
 
@@ -950,13 +966,48 @@ mod float_mat_tests {
     }
 
     #[test]
-    fn float_mat_char_poly_test() {
-        let row_a = FloatN::new(vec![1.0,2.0,3.0]);
-        let row_b = FloatN::new(vec![3.0,7.0,1.0]);
-        let row_c = FloatN::new(vec![5.0,1.0,2.0]);
+    fn float_mat_char_poly_test_1() {
+        let row_a = FloatN::new(vec![1.0,2.0]);
+        let row_b = FloatN::new(vec![3.0,7.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b]);
+        let poly = mat_a.characteristic_polynomial();
+        let mut expected = Polynomial::<1>::new();
+        expected.add_term(1.0, [2]);
+        expected.add_term(-8.0, [1]);
+        expected.add_term(1.0, [0]);
+        assert_eq!(poly, expected);
+    }
+
+    #[test]
+    fn float_mat_char_poly_test_2() {
+        let row_a = FloatN::new(vec![3.0,1.0,5.0]);
+        let row_b = FloatN::new(vec![3.0,3.0,1.0]);
+        let row_c = FloatN::new(vec![4.0,6.0,4.0]);
         let mat_a = FloatMat::new(vec![row_a, row_b, row_c]);
         let poly = mat_a.characteristic_polynomial();
-        println!("{:?}", poly);
+        let mut expected = Polynomial::<1>::new();
+        expected.add_term(1.0, [3]);
+        expected.add_term(-10.0, [2]);
+        expected.add_term(4.0, [1]);
+        expected.add_term(-40.0, [0]);
+        assert_eq!(poly, expected);
+    }
+
+    #[test]
+    fn float_mat_char_poly_test_3() {
+        let row_a = FloatN::new(vec![1.0,2.0,3.0,1.0]);
+        let row_b = FloatN::new(vec![3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new(vec![5.0,1.0,2.0,3.0]);
+        let row_d = FloatN::new(vec![8.0,4.0,2.0,1.0]);
+        let mat_a = FloatMat::new(vec![row_a, row_b, row_c, row_d]);
+        let poly = mat_a.characteristic_polynomial();
+        let mut expected = Polynomial::<1>::new();
+        expected.add_term(1.0, [4]);
+        expected.add_term(-11.0, [3]);
+        expected.add_term(-11.0, [2]);
+        expected.add_term(86.0, [1]);
+        expected.add_term(317.0, [0]);
+        assert_eq!(poly, expected);
     }
 }
 

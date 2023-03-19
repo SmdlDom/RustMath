@@ -180,6 +180,11 @@ impl<const AMOUNT_OF_VAR: usize> Polynomial<AMOUNT_OF_VAR> {
         result
     }
 
+    //#region root finding
+
+
+    //#endregion root finding
+
     //#endregion unary operation
 }
 

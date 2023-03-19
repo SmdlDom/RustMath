@@ -381,6 +381,14 @@ impl<const N: usize, const M: usize> FloatMat<N,M> {
         (q, r)
     }
 
+    pub fn lq_decomposition_gs(&self) -> (FloatMat<N,N>, FloatMat<N,M>) {
+        let (q_transpose, r_transpose) =
+            self.transpose().qr_decomposition_gs();
+        let q = q_transpose.transpose();
+        let r = r_transpose.transpose();
+        (r, q)
+    }
+
     pub fn qr_decomposition_householder(&self) -> (FloatMat<N, M>, FloatMat<M, M>) {
         let mut q = FloatMat::<N, M>::identity();
         let mut r: FloatMat<M,M> = self.get_sub_mat_on::<M,M>(0,0, M, M).unwrap();
@@ -880,6 +888,19 @@ mod float_mat_tests {
         assert_eq!(q.is_orthogonal(), true);
         assert_eq!(r.is_upper_triangular(), true);
         let mul = q.mul(&r);
+        assert_eq!(mul.is_equal(&mat_a), true);
+    }
+
+    #[test]
+    fn float_mat_lq_decomposition_gs_test() {
+        let row_a = FloatN::new([1.0,2.0,3.0,4.0]);
+        let row_b = FloatN::new([3.0,7.0,1.0,2.0]);
+        let row_c = FloatN::new([5.0,1.0,2.0,1.0]);
+        let mat_a = FloatMat::new([row_a, row_b, row_c]);
+        let (l, q) = mat_a.lq_decomposition_gs();
+        assert_eq!(q.is_orthogonal(), true);
+        assert_eq!(l.is_lower_triangular(), true);
+        let mul = l.mul(&q);
         assert_eq!(mul.is_equal(&mat_a), true);
     }
 
